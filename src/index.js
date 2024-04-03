@@ -1,16 +1,18 @@
-import { 
+import {
 	BehaviorSubject,
 	Observable,
-	Subject,
-    concatMap,
-    finalize,
+	concatMap,
+	finalize,
+	filter,
 	first,
 	fromEvent,
 	generate,
 	map,
 	race,
-	tap
- } from 'rxjs';
+	throwError,
+	zip,
+} from 'rxjs';
+
 
 class WorkerPool {
 	#workers;
@@ -28,49 +30,44 @@ class WorkerPool {
 
 	process(obs) {
 		const pool = [...this.#workers];
-		const workerAvailable = new Subject();
-		const nextWorker = new Observable(subscriber => {
+		const workerAvailable = new BehaviorSubject(pool.length > 0);
+		const workerSupply = new Observable(subscriber => {
 			(function loop() {
-				if (pool.length == 0) {
-					workerAvailable.pipe(first()).subscribe(loop);
+				while (pool.length) {
+					subscriber.next(pool.shift());
 				}
-				subscriber.next(pool.shift());
-				subscriber.complete();
 				this.idleWorkers.next(pool.length);
-			})();
+				workerAvailable.next(false);
+				workerAvailable.pipe(filter(it => it), first()).subscribe(loop.bind(this));
+			}.bind(this))();
 		});
+		const releaseWorker = worker => {
+			pool.push(worker);
+			workerAvailable.next(true);
+			this.idleWorkers.next(pool.length);
+		}
 
-		return obs.pipe(
-			concatMap(val => {
-				return new Observable(subscriber => {
-					nextWorker.subscribe(worker => {
+		return new Observable(subscriber => {
+			zip(obs, workerSupply)
+				.pipe(
+					map(([val, worker]) => new Observable(subscriber => {
 						const result = race(
-							fromEvent(worker, 'message').pipe(first(), map(it => it.data)),
-							fromEvent(worker, 'error').pipe(first(), map(() => { throw new Error("Worker error"); })),
-							fromEvent(worker, 'messageerror').pipe(first(), map(() => { throw new Error("Worker message error"); })));
-						worker.postMessage(val);
+							fromEvent(worker, 'message', {}, evt => evt.data).pipe(first()),
+						 	fromEvent(worker, 'error').pipe(map(() => throwError(() => new Error("Worker error")))),
+						 	fromEvent(worker, 'messageerror').pipe(map(() => throwError(() => new Error("Worker message error")))));
 						result
-							.pipe(
-								tap(val => { console.log('Output:', val); }),
-								finalize(() => {
-									pool.push(worker);
-									workerAvailable.next();
-									this.idleWorkers.next(pool.length);
-								})
-							)
-							.subscribe({
-								next: val => subscriber.next(val),
-								error: err => subscriber.error(err),
-								complete: () => subscriber.complete()
-							});
-					});
-			})
-		}));
+							.pipe(finalize(() => { releaseWorker(worker); }))
+							.subscribe(subscriber);
+						worker.postMessage(val);
+					})),
+					concatMap(it => it))
+				.subscribe(subscriber);
+		});
 	}
 }
 
 const pool = new WorkerPool(8, i => new Worker('worker.js', { name: `Pool worker ${i}` }));
 pool.idleWorkers.subscribe(it => { document.querySelector('#idleWorkers').textContent = it.toString(); });
 
-const input = generate(0, i => i < 10000, i => i + 1, i => i);
+const input = generate(0, i => i <= 100, i => i + 1, i => i);
 pool.process(input).subscribe(result => { document.querySelector('#result').textContent = result.toString(); });

@@ -28,3 +28,6 @@ My first approach was based on concatMap, which has the desired property of
 maintaining order. Unfortunately it also has the undesired property of not
 processing the next input until the result of the previous one has been
 processed, so there was no concurrency.
+
+The next idea was to zip the input together with an observable that produces
+idle workers as available.

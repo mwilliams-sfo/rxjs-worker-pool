@@ -1,5 +1,5 @@
-self.addEventListener('message', evt => {
+addEventListener('message', evt => {
 	setTimeout(
-        () => { self.postMessage(evt.data); },
-        500 * Math.random());
+		() => { postMessage(evt.data); },
+		50 * Math.random());
 });
