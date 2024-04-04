@@ -30,17 +30,16 @@ class WorkerPool {
 
 	#acquireWorker() {
 		return new Observable(subscriber => {
-			let availableNow;
 			const loop = () => {
-				availableNow = this.#available.value;
-				if (availableNow.length == 0) {
+				const available = this.#available.value;
+				if (available.length == 0) {
 					this.#available
 						.pipe(filter(it => it.length > 0), first())
 						.subscribe(loop);
 					return;
 				}
-				const worker = availableNow[0];
-				this.#available.next(availableNow.slice(1));
+				const worker = available[0];
+				this.#available.next(available.slice(1));
 				subscriber.next(worker);
 				subscriber.complete();
 			};
@@ -57,7 +56,7 @@ class WorkerPool {
 		race(
 			fromEvent(worker, 'message').pipe(map(evt => evt.data), first()),
 			fromEvent(worker, 'error').pipe(map(() => { throw new Error('Worker error'); })),
-			fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker error'); })))
+			fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker message error'); })))
 			.subscribe(result);
 		worker.postMessage(value);
 		return result.pipe(filter(it => typeof it !== 'undefined'));
