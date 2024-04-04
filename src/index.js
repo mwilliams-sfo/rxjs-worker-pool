@@ -13,7 +13,6 @@ import {
 	zip
 } from 'rxjs';
 
-
 class WorkerPool {
 	#available;
 
@@ -72,7 +71,7 @@ class WorkerPool {
 	}
 }
 
-const pool = new WorkerPool(8, i => new Worker('worker.js', { name: `Pool worker ${i}` }));
+const pool = new WorkerPool(8, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
 pool.idleWorkers.subscribe(it => { document.querySelector('#idleWorkers').textContent = it.toString(); });
 
 const input = generate({
