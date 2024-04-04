@@ -40,3 +40,47 @@ idle workers as available. At first this appeared successful; all of the
 workers were supplied, but then at the end they were not released back to
 the pool. Logging indicated that there was some concurrency for the first few
 values, but then none as the workers were not recycled.
+
+## Analysis
+
+What am I trying to achieve here? The processor should produce an Observable
+that, when subscribed, begins dispatching input values to workers until all
+workers are in use. It maintains a queue of pending calculations represented
+as Observables. When that queue is full, the processor waits for the oldest
+calculation to produce a value and then emits it downstream. Each calculation
+should release its worker as it completes.
+
+Since ordinary Observables do nothing before they are subscribed, they are
+insufficient for representing the calculation in progress. Likewise, concatMap
+relies on ordinary Observables, each of which is not subscribed before it is
+needed, so it too is insufficient. Likely a BehaviorSubject is needed to catch
+the result of each calculation and hold it. However BehaviorSubject can also
+replay a value, so some care is needed to avoid releasing a worker to the pool
+twice.
+
+This seems to lead to a paradox: I cannot use map, because it requires a
+synchronous result and each value needs to wait asynchronously for a worker.
+The most obvious alternative is concatMap, but it processes each input only
+the prior outputs are produced.
+
+The use of BehaviorSubject also seems to involve a paradox. I want to use
+BehaviorSubjects so that results are captured before they are subscribed to,
+but BehaviorSubject requires a default value (e.g. undefined). I do not want
+that default value in the output, so I have to add a filter to the
+BehaviorSubject to discard the default value.
+
+One way around the paradox involving map is to create a BehaviorSubject, start
+the calculation, and then return the subject. This introduces another bug.
+When the processor runs out of available workers, it should stop accepting
+input until another worker is available for that particular input. Instead,
+this approach immediately requests workers for all remaining inputs. Maybe
+the problem in this regard is that I always wait for a worker, rather than
+first checking synchronously whether one is available.
+
+## Solution 3: zip improved
+
+Not seeing a way around these paradoxes, I went back to the zip approach and
+tried to fix the worker leak. This involved mainly a lot of factoring to leave
+fewer hiding places for bugs. Eventually I got it to work perfectly. All
+workers are used, all of them return to the pool at the end, and all of the
+outputs are in order.
