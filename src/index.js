@@ -31,18 +31,19 @@ class WorkerPool {
 
 	#acquireWorker() {
 		return new Observable(subscriber => {
-			(function loop() {
+			const loop = () => {
 				if (this.#available.value.length == 0) {
 					this.#available
 						.pipe(filter(it => it.length > 0), first())
-						.subscribe(loop.bind(this));
+						.subscribe(loop);
 					return;
 				}
 				const worker = this.#available.value[0];
 				this.#available.next(this.#available.value.slice(1));
 				subscriber.next(worker);
 				subscriber.complete();
-			}.bind(this))();
+			};
+			loop();
 		});
 	}
 
