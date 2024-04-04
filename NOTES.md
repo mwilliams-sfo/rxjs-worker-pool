@@ -84,3 +84,12 @@ tried to fix the worker leak. This involved mainly a lot of factoring to leave
 fewer hiding places for bugs. Eventually I got it to work perfectly. All
 workers are used, all of them return to the pool at the end, and all of the
 outputs are in order.
+
+## Lessons learned
+
+- It's easier to keep related Observables consistent by deriving the ones that
+  can be derived with operators.
+- A complex Observable/operator should be replaced with simple interconnected
+  Observables/operators
+- RxJS provides robust support to avoid resource leaks.
+- BehaviorSubjects are useful for bridging synchronous and reactive styles.
