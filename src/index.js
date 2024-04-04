@@ -30,15 +30,17 @@ class WorkerPool {
 
 	#acquireWorker() {
 		return new Observable(subscriber => {
+			let availableNow;
 			const loop = () => {
-				if (this.#available.value.length == 0) {
+				availableNow = this.#available.value;
+				if (availableNow.length == 0) {
 					this.#available
 						.pipe(filter(it => it.length > 0), first())
 						.subscribe(loop);
 					return;
 				}
-				const worker = this.#available.value[0];
-				this.#available.next(this.#available.value.slice(1));
+				const worker = availableNow[0];
+				this.#available.next(availableNow.slice(1));
 				subscriber.next(worker);
 				subscriber.complete();
 			};
