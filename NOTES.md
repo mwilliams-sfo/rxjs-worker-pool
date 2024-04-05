@@ -61,7 +61,7 @@ twice.
 This seems to lead to a paradox: I cannot use map, because it requires a
 synchronous result and each value needs to wait asynchronously for a worker.
 The most obvious alternative is concatMap, but it processes each input only
-the prior outputs are produced.
+after the prior outputs are produced.
 
 The use of BehaviorSubject also seems to involve a paradox. I want to use
 BehaviorSubjects so that results are captured before they are subscribed to,
