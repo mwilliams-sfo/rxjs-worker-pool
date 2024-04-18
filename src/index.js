@@ -10,36 +10,38 @@ import {
 	map,
 	race,
 	repeat,
+	skip,
 	zip
 } from 'rxjs';
 
 class WorkerPool {
-	#available;
+	#allWorkers;
+	#availableWorkers;
 
 	get idleWorkers() {
-		return this.#available.pipe(map(it => it.length));
+		return this.#availableWorkers.pipe(map(it => it.length));
 	}
 
 	constructor(count, workerFactory) {
-		const workers = new Array(count);
+		this.#allWorkers = new Array(count);
 		for (let i = 0; i < count; i++) {
-			workers[i] = workerFactory(i);
+			this.#allWorkers[i] = workerFactory(i);
 		}
-		this.#available = new BehaviorSubject(workers);
+		this.#availableWorkers = new BehaviorSubject(this.#allWorkers);
 	}
 
-	#acquireWorker() {
+	acquireWorker() {
 		return new Observable(subscriber => {
 			const loop = () => {
-				const available = this.#available.value;
+				const available = this.#availableWorkers.value;
 				if (available.length == 0) {
-					this.#available
+					this.#availableWorkers
 						.pipe(filter(it => it.length > 0), first())
 						.subscribe(loop);
 					return;
 				}
 				const worker = available[0];
-				this.#available.next(available.slice(1));
+				this.#availableWorkers.next(available.slice(1));
 				subscriber.next(worker);
 				subscriber.complete();
 			};
@@ -47,8 +49,26 @@ class WorkerPool {
 		});
 	}
 
-	#releaseWorker(worker) {
-		this.#available.next([...this.#available.value, worker]);
+	releaseWorker(worker) {
+		if (this.#allWorkers.indexOf(worker) < 0) throw new Error('Worker is not in this pool');
+		if (this.#availableWorkers.value.indexOf(worker) >= 0) throw new Error('Worker is already available');
+
+		this.#availableWorkers.next([...this.#availableWorkers.value, worker]);
+	}
+}
+
+class PoolProcessor {
+	#pool;
+
+	constructor(pool) {
+		this.#pool = pool;
+	}
+
+	process(input) {
+		const workers = this.#pool.acquireWorker().pipe(repeat());
+		return zip(input, workers).pipe(
+			concatMap(([value, worker]) => this.#dispatch(value, worker)
+				.pipe(finalize(() => this.#pool.releaseWorker(worker)))));
 	}
 
 	#dispatch(value, worker) {
@@ -59,16 +79,7 @@ class WorkerPool {
 			fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker message error'); })))
 			.subscribe(result);
 		worker.postMessage(value);
-		return result.pipe(filter(it => typeof it !== 'undefined'));
-	}
-
-	process() {
-		const workers = this.#acquireWorker().pipe(repeat());
-		return input => zip(input, workers).pipe(
-			concatMap(([value, worker]) => {
-				return this.#dispatch(value, worker)
-					.pipe(finalize(() => this.#releaseWorker(worker)));
-			}));
+		return result.pipe(skip(1));
 	}
 }
 
@@ -80,5 +91,5 @@ const input = generate({
 	condition: i => i <= 100,
 	iterate: i => i + 1
 });
-input.pipe(pool.process())
+new PoolProcessor(pool).process(input)
 	.subscribe(result => { document.querySelector('#result').textContent = result.toString(); });
