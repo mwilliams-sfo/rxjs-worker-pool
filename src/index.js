@@ -15,33 +15,35 @@ import {
 } from 'rxjs';
 
 class WorkerPool {
-	#allWorkers;
-	#availableWorkers;
+	#workers;
+	#idleWorkers;
 
-	get idleWorkers() {
-		return this.#availableWorkers.pipe(map(it => it.length));
+	get idleCount() {
+		return this.#idleWorkers.pipe(map(it => it.length));
 	}
 
 	constructor(count, workerFactory) {
-		this.#allWorkers = new Array(count);
+		if (count === 0) throw new RangeError('WorkerPool size must be positive');
+
+		this.#workers = new Array(count);
 		for (let i = 0; i < count; i++) {
-			this.#allWorkers[i] = workerFactory(i);
+			this.#workers[i] = workerFactory(i);
 		}
-		this.#availableWorkers = new BehaviorSubject(this.#allWorkers);
+		this.#idleWorkers = new BehaviorSubject(this.#workers);
 	}
 
 	acquireWorker() {
 		return new Observable(subscriber => {
 			const loop = () => {
-				const available = this.#availableWorkers.value;
-				if (available.length == 0) {
-					this.#availableWorkers
+				const idleWorkers = this.#idleWorkers.value;
+				if (idleWorkers.length == 0) {
+					this.#idleWorkers
 						.pipe(filter(it => it.length > 0), first())
 						.subscribe(loop);
 					return;
 				}
-				const worker = available[0];
-				this.#availableWorkers.next(available.slice(1));
+				const worker = idleWorkers[0];
+				this.#idleWorkers.next(idleWorkers.slice(1));
 				subscriber.next(worker);
 				subscriber.complete();
 			};
@@ -50,10 +52,10 @@ class WorkerPool {
 	}
 
 	releaseWorker(worker) {
-		if (this.#allWorkers.indexOf(worker) < 0) throw new Error('Worker is not in this pool');
-		if (this.#availableWorkers.value.indexOf(worker) >= 0) throw new Error('Worker is already available');
+		if (this.#workers.indexOf(worker) < 0) throw new Error('Worker is not from this pool');
+		if (this.#idleWorkers.value.indexOf(worker) >= 0) throw new Error('Worker is already idle');
 
-		this.#availableWorkers.next([...this.#availableWorkers.value, worker]);
+		this.#idleWorkers.next([...this.#idleWorkers.value, worker]);
 	}
 }
 
@@ -67,8 +69,9 @@ class PoolProcessor {
 	process(input) {
 		const workers = this.#pool.acquireWorker().pipe(repeat());
 		return zip(input, workers).pipe(
-			concatMap(([value, worker]) => this.#dispatch(value, worker)
-				.pipe(finalize(() => this.#pool.releaseWorker(worker)))));
+			concatMap(([value, worker]) =>
+				this.#dispatch(value, worker).pipe(
+					finalize(() => this.#pool.releaseWorker(worker)))));
 	}
 
 	#dispatch(value, worker) {
@@ -84,7 +87,7 @@ class PoolProcessor {
 }
 
 const pool = new WorkerPool(8, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
-pool.idleWorkers.subscribe(it => { document.querySelector('#idleWorkers').textContent = it.toString(); });
+pool.idleCount.subscribe(it => { document.querySelector('#idleCount').textContent = it.toString(); });
 
 const input = generate({
 	initialState: 0,
