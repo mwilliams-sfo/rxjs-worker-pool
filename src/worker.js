@@ -1,5 +1,5 @@
 addEventListener('message', evt => {
 	setTimeout(
 		() => { postMessage(evt.data); },
-		50 * Math.random());
+		200 * Math.random());
 });
