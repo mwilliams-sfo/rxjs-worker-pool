@@ -8,6 +8,7 @@ import {
 	fromEvent,
 	generate,
 	map,
+	of,
 	race,
 	repeat,
 	skip,
@@ -42,10 +43,8 @@ class WorkerPool {
 						.subscribe(loop);
 					return;
 				}
-				const worker = idleWorkers[0];
 				this.#idleWorkers.next(idleWorkers.slice(1));
-				subscriber.next(worker);
-				subscriber.complete();
+				of(idleWorkers[0]).subscribe(subscriber);
 			};
 			loop();
 		});
@@ -67,14 +66,13 @@ class PoolProcessor {
 	}
 
 	process(input) {
-		const workers = this.#pool.acquireWorker().pipe(repeat());
-		return zip(input, workers).pipe(
-			concatMap(([value, worker]) =>
-				this.#dispatch(value, worker).pipe(
-					finalize(() => this.#pool.releaseWorker(worker)))));
+		return input.pipe(
+			concatMap(value => zip(of(value), this.#pool.acquireWorker())),
+			concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
+				finalize(() => this.#pool.releaseWorker(worker)))));
 	}
 
-	#dispatch(value, worker) {
+	#dispatchTo(worker, value) {
 		const result = new BehaviorSubject();
 		race(
 			fromEvent(worker, 'message').pipe(map(evt => evt.data), first()),

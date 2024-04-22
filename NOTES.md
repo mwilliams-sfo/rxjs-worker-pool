@@ -93,3 +93,25 @@ outputs are in order.
   Observables/operators
 - RxJS provides robust support to avoid resource leaks.
 - BehaviorSubjects are useful for bridging synchronous and reactive styles.
+
+## Addendum: plugging the leaks
+
+Despite the correct behavior, I remained unsatisfied with the approach of
+zipping the input with an endless stream of acquired workers. It does not
+explicitly prevent a worker from being acquired when there is no value to work
+on. Since worker release is tied to value dispatch, this can result in a leak.
+
+Once again I got into the same paradoxes as before: the processor should
+proceed readily when a value and a worker are available, but not when only a
+worker is available. Many different approaches were tried and failed. The key
+idea that led to a working solution was zipping each value with a *single*
+worker request. When that worker becomes available, the value is dispatched to
+it and a subject is created to catch the result. This ensures that dispatch
+occurs only under the stated conditions.
+
+Despite the improvement, I could not factor out a method specifically for
+processing each value. Attempting to do so returns to the previous incorrect
+behavior of using only one worker. Having two concatMap operations that
+separately acquire a worker and then dispatch to it appears to introduce a
+scheduling point that is necessary to allow other values through. If I put
+these operations within an enclosing concatMap, the input is blocked.
