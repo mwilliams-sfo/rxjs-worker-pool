@@ -1,5 +1,7 @@
-addEventListener('message', evt => {
+onmessage = evt => {
+	const value = evt.data;
+	console.log(`${self.name} processing input: ${value}`);
 	setTimeout(
-		() => { postMessage(evt.data); },
-		200 * Math.random());
-});
+		() => { postMessage(value); },
+		500 * Math.random());
+};

@@ -52,9 +52,17 @@ class PoolProcessor {
 
 	process(input) {
 		return input.pipe(
-			rx.concatMap(value => rx.zip(rx.of(value), this.#pool.acquireWorker())),
+			rx.tap(value => { console.log(`Received input: ${value}`); }),
+			rx.concatMap(value => rx.zip(
+				rx.of(value),
+				this.#pool.acquireWorker().pipe(
+					rx.tap(() => { console.log(`Acquired worker for input: ${value}`); })))),
 			rx.concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
-				rx.finalize(() => this.#pool.releaseWorker(worker)))));
+				rx.tap(() => { console.log(`Received result for input: ${value}`); }),
+				rx.finalize(() => {
+					console.log(`Releasing worker for input: ${value}`);
+					this.#pool.releaseWorker(worker);
+				}))));
 	}
 
 	#dispatchTo(worker, value) {
