@@ -71,7 +71,9 @@ class PoolProcessor {
 	}
 }
 
-const pool = new WorkerPool(8, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
+const concurrency = Math.max(1, (navigator.hardwareConcurrency ?? 1) - 1);
+document.querySelector('#poolSize').textContent = concurrency.toString();
+const pool = new WorkerPool(concurrency, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
 pool.idleCount.subscribe(it => { document.querySelector('#idleCount').textContent = it.toString(); });
 
 const input = rx.generate({
