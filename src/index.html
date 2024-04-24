@@ -4,6 +4,16 @@
 	<title>Worker pool demo</title>
 </head>
 <body>
+	<p>
+		A demo and stress test of the worker pool:
+		<ul>
+			<li>The result should count monotonically from 0 to 100.</li>
+			<li>The number of idle workers should remain at or near 0 until the end.</li>
+			<li>At the end, the number of idle workers should increase to the pool size.</li>
+		</ul>
+		This indicates that the pool is fully utilized, the results are delivered in
+		order, and no workers are leaked.
+	</p>
 	<p>Pool size: <output id="poolSize"></output></p>
 	<p>Idle workers: <output id="idleCount"></output></p>
 	<p>Result: <output id="result"></output></p>
