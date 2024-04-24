@@ -73,14 +73,16 @@ class PoolProcessor {
 	}
 
 	#dispatchTo(worker, value) {
-		const result = new BehaviorSubject();
-		race(
-			fromEvent(worker, 'message').pipe(map(evt => evt.data), first()),
-			fromEvent(worker, 'error').pipe(map(() => { throw new Error('Worker error'); })),
-			fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker message error'); })))
-			.subscribe(result);
-		worker.postMessage(value);
-		return result.pipe(skip(1));
+		return new Observable(subscriber => {
+			const result = new BehaviorSubject();
+			race(
+				fromEvent(worker, 'message').pipe(map(evt => evt.data), first()),
+				fromEvent(worker, 'error').pipe(map(() => { throw new Error('Worker error'); })),
+				fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker message error'); })))
+				.subscribe(result);
+			worker.postMessage(value);
+			result.pipe(skip(1)).subscribe(subscriber);
+		});
 	}
 }
 
