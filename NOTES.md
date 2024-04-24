@@ -94,7 +94,7 @@ outputs are in order.
 - RxJS provides robust support to avoid resource leaks.
 - BehaviorSubjects are useful for bridging synchronous and reactive styles.
 
-## Addendum: plugging the leaks
+## Plugging the leaks
 
 Despite the correct behavior, I remained unsatisfied with the approach of
 zipping the input with an endless stream of acquired workers. It does not
@@ -115,3 +115,20 @@ behavior of using only one worker. Having two concatMap operations that
 separately acquire a worker and then dispatch to it appears to introduce a
 scheduling point that is necessary to allow other values through. If I put
 these operations within an enclosing concatMap, the input is blocked.
+
+## Flow control (backpressure)
+
+When I added logging during further investigations, I noticed that the worker
+acquisition does not prevent the input from generating arbitrarily many values
+as I had assumed that it did. This makes the pool unsuitable for the type of
+application I originally had in mind, which would dispatch of thousands of
+values corresponding to pixels in a canvas. The processor should be able to
+control the input flow.
+
+ReactiveX specifies flow control (called backpressure) as an optional feature.
+RxJS supported it in version 4 but does not in the latest version. However, I
+can implement it myself by passing a signaling function along with the input.
+When the processor acquires a worker for the most recent input value, it can
+call the signalling function to request another value, which when delivered
+will trigger another worker acquisition. This way the input rate is limited by
+worker availability.

@@ -50,13 +50,16 @@ class PoolProcessor {
 		this.#pool = pool;
 	}
 
-	process(input) {
+	process(input, request) {
 		return input.pipe(
 			rx.tap(value => { console.log(`Received input: ${value}`); }),
 			rx.concatMap(value => rx.zip(
 				rx.of(value),
 				this.#pool.acquireWorker().pipe(
-					rx.tap(() => { console.log(`Acquired worker for input: ${value}`); })))),
+					rx.tap(() => {
+						console.log(`Acquired worker for input: ${value}`);
+						request?.(1);
+					})))),
 			rx.concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
 				rx.tap(() => { console.log(`Received result for input: ${value}`); }),
 				rx.finalize(() => {
@@ -85,10 +88,19 @@ document.querySelector('#poolSize').textContent = poolSize.toString();
 const pool = new WorkerPool(poolSize, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
 pool.idleCount.subscribe(it => { document.querySelector('#idleCount').textContent = it.toString(); });
 
-const input = rx.generate({
-	initialState: 0,
-	condition: i => i <= 100,
-	iterate: i => i + 1
-});
-new PoolProcessor(pool).process(input)
-	.subscribe(result => { document.querySelector('#result').textContent = result.toString(); });
+let count = 0;
+const input = new rx.Subject();
+const request = n => {
+	for (; n > 0 && count < 100; n--) {
+		input.next(++count);
+		if (count == 100) {
+			input.complete();
+		}
+	}
+};
+
+input.subscribe(value => { document.querySelector('#lastInput').textContent = value.toString(); });
+new PoolProcessor(pool)
+	.process(input, request)
+	.subscribe(result => { document.querySelector('#lastOutput').textContent = result.toString(); });
+request(1);
