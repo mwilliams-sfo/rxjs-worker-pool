@@ -132,3 +132,9 @@ When the processor acquires a worker for the most recent input value, it can
 call the signalling function to request another value, which when delivered
 will trigger another worker acquisition. This way the input rate is limited by
 worker availability.
+
+Why doesn't RxJS support backpressure? The developers say that a reactive
+stream should be able to push notifications at leisure. If the consumer can
+block it, then it is not really reactive and is more suitably modeled as an
+iterable. Accordingly, I modified the processor further to accept iterable
+input using the ix library.

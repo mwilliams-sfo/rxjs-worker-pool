@@ -1,4 +1,6 @@
 import * as rx from 'rxjs';
+import * as ixAsync from 'ix/asynciterable';
+import * as ixAsyncOps from 'ix/asynciterable/operators';
 
 class WorkerPool {
 	#workers;
@@ -50,22 +52,35 @@ class PoolProcessor {
 		this.#pool = pool;
 	}
 
-	process(input, request) {
-		return input.pipe(
-			rx.tap(value => { console.log(`Received input: ${value}`); }),
-			rx.concatMap(value => rx.zip(
-				rx.of(value),
-				this.#pool.acquireWorker().pipe(
-					rx.tap(() => {
-						console.log(`Acquired worker for input: ${value}`);
-						request?.(1);
-					})))),
-			rx.concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
-				rx.tap(() => { console.log(`Received result for input: ${value}`); }),
-				rx.finalize(() => {
-					console.log(`Releasing worker for input: ${value}`);
-					this.#pool.releaseWorker(worker);
-				}))));
+	process(input) {
+		return new rx.Observable(subscriber => {
+			const {observable, request} = PoolProcessor.#createPullObservable(input);
+			this.#process(observable, request).subscribe(subscriber);
+		});
+	}
+
+	#process(input, request) {
+		return new rx.Observable(subscriber => {
+			input.pipe(
+				rx.concatMap(value => {
+					console.log(`Received input: ${value}`);
+					return rx.zip(
+						rx.of(value),
+						this.#pool.acquireWorker().pipe(
+							rx.tap(() => {
+								console.log(`Acquired worker for input: ${value}`);
+								request();
+							})));
+				}),
+				rx.concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
+					rx.tap(() => { console.log(`Received result for input: ${value}`); }),
+					rx.finalize(() => {
+						console.log(`Releasing worker for input: ${value}`);
+						this.#pool.releaseWorker(worker);
+					}))))
+				.subscribe(subscriber);
+			request();
+		});
 	}
 
 	#dispatchTo(worker, value) {
@@ -80,6 +95,31 @@ class PoolProcessor {
 			result.pipe(rx.skip(1)).subscribe(subscriber);
 		});
 	}
+
+	static #createPullObservable(input) {
+		try {
+			input = ixAsync.from(input);
+			const subject = new rx.Subject();
+			const iterator = input[Symbol.asyncIterator]();
+			const request = () => {
+				iterator.next().then(next => {
+					if (!next.done) subject.next(next.value);
+					else subject.complete();
+				});
+			};
+			return {
+				observable: subject.pipe(rx.finalize(() => iterator.return())),
+				request
+			};
+		} catch(err) {}
+		try {
+			return {
+				observable: rx.from(input),
+				request: rx.noop
+			};
+		} catch(err) {}
+		throw new Error('Argument cannot be converted to a pull Observable');
+	}
 }
 
 const poolSize = Math.max(1, (navigator.hardwareConcurrency ?? 1) - 1);
@@ -88,19 +128,14 @@ document.querySelector('#poolSize').textContent = poolSize.toString();
 const pool = new WorkerPool(poolSize, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
 pool.idleCount.subscribe(it => { document.querySelector('#idleCount').textContent = it.toString(); });
 
-let count = 0;
-const input = new rx.Subject();
-const request = n => {
-	for (; n > 0 && count < 100; n--) {
-		input.next(++count);
-		if (count == 100) {
-			input.complete();
-		}
+const input = function*() {
+	for (let i = 0; i <= 100; i++) {
+		yield i;
 	}
 };
 
-input.subscribe(value => { document.querySelector('#lastInput').textContent = value.toString(); });
 new PoolProcessor(pool)
-	.process(input, request)
+	.process(
+		ixAsync.from(input()).pipe(
+			ixAsyncOps.tap(value => { document.querySelector('#lastInput').textContent = value.toString(); })))
 	.subscribe(result => { document.querySelector('#lastOutput').textContent = result.toString(); });
-request(1);
