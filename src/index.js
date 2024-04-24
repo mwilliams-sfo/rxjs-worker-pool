@@ -1,26 +1,11 @@
-import {
-	BehaviorSubject,
-	Observable,
-	concatMap,
-	finalize,
-	filter,
-	first,
-	fromEvent,
-	generate,
-	map,
-	of,
-	race,
-	repeat,
-	skip,
-	zip
-} from 'rxjs';
+import * as rx from 'rxjs';
 
 class WorkerPool {
 	#workers;
 	#idleWorkers;
 
 	get idleCount() {
-		return this.#idleWorkers.pipe(map(it => it.length));
+		return this.#idleWorkers.pipe(rx.map(it => it.length));
 	}
 
 	constructor(count, workerFactory) {
@@ -30,21 +15,21 @@ class WorkerPool {
 		for (let i = 0; i < count; i++) {
 			this.#workers[i] = workerFactory(i);
 		}
-		this.#idleWorkers = new BehaviorSubject(this.#workers);
+		this.#idleWorkers = new rx.BehaviorSubject(this.#workers);
 	}
 
 	acquireWorker() {
-		return new Observable(subscriber => {
+		return new rx.Observable(subscriber => {
 			const loop = () => {
 				const idleWorkers = this.#idleWorkers.value;
 				if (idleWorkers.length == 0) {
 					this.#idleWorkers
-						.pipe(filter(it => it.length > 0), first())
+						.pipe(rx.filter(it => it.length > 0), rx.first())
 						.subscribe(loop);
 					return;
 				}
 				this.#idleWorkers.next(idleWorkers.slice(1));
-				of(idleWorkers[0]).subscribe(subscriber);
+				rx.of(idleWorkers[0]).subscribe(subscriber);
 			};
 			loop();
 		});
@@ -67,21 +52,21 @@ class PoolProcessor {
 
 	process(input) {
 		return input.pipe(
-			concatMap(value => zip(of(value), this.#pool.acquireWorker())),
-			concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
-				finalize(() => this.#pool.releaseWorker(worker)))));
+			rx.concatMap(value => rx.zip(rx.of(value), this.#pool.acquireWorker())),
+			rx.concatMap(([value, worker]) => this.#dispatchTo(worker, value).pipe(
+				rx.finalize(() => this.#pool.releaseWorker(worker)))));
 	}
 
 	#dispatchTo(worker, value) {
-		return new Observable(subscriber => {
-			const result = new BehaviorSubject();
-			race(
-				fromEvent(worker, 'message').pipe(map(evt => evt.data), first()),
-				fromEvent(worker, 'error').pipe(map(() => { throw new Error('Worker error'); })),
-				fromEvent(worker, 'messageerror').pipe(map(() => { throw new Error('Worker message error'); })))
+		return new rx.Observable(subscriber => {
+			const result = new rx.BehaviorSubject();
+			rx.race(
+				rx.fromEvent(worker, 'message').pipe(rx.first(), rx.map(evt => evt.data)),
+				rx.fromEvent(worker, 'error').pipe(rx.map(() => { throw new Error('Worker error'); })),
+				rx.fromEvent(worker, 'messageerror').pipe(rx.map(() => { throw new Error('Worker message error'); })))
 				.subscribe(result);
 			worker.postMessage(value);
-			result.pipe(skip(1)).subscribe(subscriber);
+			result.pipe(rx.skip(1)).subscribe(subscriber);
 		});
 	}
 }
@@ -89,7 +74,7 @@ class PoolProcessor {
 const pool = new WorkerPool(8, i => new Worker('worker.bundle.js', { name: `Pool worker ${i}` }));
 pool.idleCount.subscribe(it => { document.querySelector('#idleCount').textContent = it.toString(); });
 
-const input = generate({
+const input = rx.generate({
 	initialState: 0,
 	condition: i => i <= 100,
 	iterate: i => i + 1
