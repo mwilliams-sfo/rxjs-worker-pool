@@ -24,7 +24,7 @@ class WorkerPool {
 				const idleWorkers = this.#idleWorkers.value;
 				if (idleWorkers.length == 0) {
 					this.#idleWorkers
-						.pipe(rx.filter(it => it.length > 0), rx.first())
+						.pipe(rx.first(it => it.length > 0))
 						.subscribe(loop);
 					return;
 				}
