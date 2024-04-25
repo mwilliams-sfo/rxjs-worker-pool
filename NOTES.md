@@ -138,3 +138,18 @@ stream should be able to push notifications at leisure. If the consumer can
 block it, then it is not really reactive and is more suitably modeled as an
 iterable. Accordingly, I modified the processor further to accept iterable
 input using the ix library.
+
+## Further lessons
+
+- concatMap is appropriate for a strictly sequential process that may consume
+  an indefinite amount of their input.
+- If an exact amount of input must be processed, iterables are more suitable.
+- If concurrency is needed, a pipeline of multiple stages is more suitable.
+  Compare Hoare's COPY program in CSP.
+
+I remain unpersuaded by the RxJS developers' view on backpressure. It appears
+to apply specifically to this case where I want to the input to send values
+only as fast as I can acquire workers for them. Backpressure enables a process
+to manage an internal flow limit that is unknown to the producer and the
+consumer. It informs a producer that while it may *produce*, it should not
+*emit*.
