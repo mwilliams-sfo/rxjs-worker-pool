@@ -1,5 +1,5 @@
 
-class PoolProcessorSubscription {
+class MapWithWorkersSubscription {
 	#input;
 	#pool;
 	#subscriber;
@@ -120,7 +120,7 @@ class PoolProcessorSubscription {
 	}
 }
 
-class PoolProcessor {
+class MapWithWorkersProcessor {
 	#input;
 	#pool;
 
@@ -130,19 +130,22 @@ class PoolProcessor {
 	}
 
 	subscribe(subscriber) {
-		const subscription = new PoolProcessorSubscription(this.#input, this.#pool, subscriber);
+		const subscription = new MapWithWorkersSubscription(this.#input, this.#pool, subscriber);
 		subscriber.onSubscribe(subscription);
 	}
 }
 
-const mapWithWorkers = pool =>
-	input => {
-		const processor = new PoolProcessor(input, pool);
+const mapWithWorkers = (pool, concurrency) => {
+	concurrency = concurrency ?? 1;
+	if (concurrency <= 0) throw new Error('Concurrency must be at least 1');
+	return input => {
+		const processor = new MapWithWorkersProcessor(input, pool);
 		return {
 			subscribe(subscriber) {
 				processor.subscribe(subscriber);
 			}
 		};
 	};
+}
 
 export default mapWithWorkers;

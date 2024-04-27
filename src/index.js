@@ -36,7 +36,7 @@ pipe(inputPublisher,
 			document.querySelector('#lastInput').textContent = value.toString();
 		}
 	}),
-	mapWithWorkers(pool))
+	mapWithWorkers(pool, poolSize))
 	.subscribe({
 		_subscription: void 0,
 		onSubscribe(subscription) {
