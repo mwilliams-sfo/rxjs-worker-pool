@@ -51,7 +51,7 @@ class IterableSubscription {
 }
 
 
-export class IterablePublisher {
+export default class IterablePublisher {
 	#iterable;
 
 	constructor(iterable) {
