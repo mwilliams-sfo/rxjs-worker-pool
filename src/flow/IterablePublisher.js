@@ -1,9 +1,19 @@
 
+const iterableIterator = iterator =>
+	iterator[Symbol.iterator] ? iterator :
+	{
+		[Symbol.iterator]() { return iterator; },
+		next() { return iterator.next(); },
+		return() { return iterator.return(); }
+	};
+
 class IterableSubscription {
 	#iterable;
 	#subscriber;
+
+	#cancelled = false;
+	#demand = 0n;
 	#iterator;
-	#terminated = false;
 
 	constructor(iterable, subscriber) {
 		this.#iterable = iterable;
@@ -11,45 +21,76 @@ class IterableSubscription {
 	}
 
 	cancel() {
-		if (this.#terminated) return;
-		this.#terminated = true;
-		this.#iterator?.return?.();
+		if (this.#cancelled) return;
+		this.#cancelled = true;
+		this.#subscriber = null;
+		try {
+			this.#iterator?.return?.();
+		} catch (err) {}
 	}
 
 	request(n) {
-		if (this.#terminated || n <= 0) return;
-		this.#catchError(() => {
-			if (!this.#iterator) {
-				this.#iterator = this.#iterable[Symbol.iterator]();
+		if (this.#cancelled) return;
+		try {
+			if (typeof n == 'number') {
+				n = BigInt(n);
 			}
-			while (!this.#terminated && n > 0) {
-				const next = this.#iterator.next();
-				if (!next.done) {
-					n--;
-					this.#signal(() => { this.#subscriber.onNext?.(next.value); });
-				} else {
-					this.#terminated = true;
-					this.#signal(() => { this.#subscriber.onComplete?.(); });
-				}	
+			if (n <= 0n) throw new RangeError('Non-positive request is not allowed');
+			const shouldFulfill = this.#demand == 0n;
+			this.#demand += n;
+			if (shouldFulfill) {
+				this.#fulfillDemand();
 			}
-		});
+		} catch (err) {
+			this.#signalError(err);
+		}
 	}
 
-	#catchError(block) {
+	async #fulfillDemand() {
 		try {
-			block();
+			if (this.#cancelled || this.#demand == 0) return;
+			if (!this.iterator) {
+				this.#iterator = iterableIterator(this.#iterable[Symbol.iterator]());
+			}
+			for (const value of this.#iterator) {
+				try {
+					this.#signalNext(value);
+				} finally {
+					this.demand--;
+				}
+				if (this.#cancelled || this.#demand == 0) return;
+			}
+			this.#signalComplete();
 		} catch (err) {
-			this.#signal(() => { this.#subscriber.onError(err); });
+			this.#signalError(err);
 		}
+	}
+
+	#signalNext(value) {
+		this.#signal(() => this.#subscriber.onNext(value));
+	}
+
+	#signalError(err) {
+		const subscriber = this.#subscriber;
+		this.cancel();
+		this.#signal(() => subscriber.onError(err));
+	}
+
+	#signalComplete(err) {
+		const subscriber = this.#subscriber;
+		this.cancel();
+		this.#signal(() => subscriber.onComplete());
 	}
 
 	#signal(block) {
 		try {
 			block();
-		} catch (err) {}
+		} catch (err) {
+			this.cancel()
+			throw err;
+		}
 	}
 }
-
 
 export default class IterablePublisher {
 	#iterable;
@@ -59,6 +100,12 @@ export default class IterablePublisher {
 	}
 
 	subscribe(subscriber) {
-		subscriber.onSubscribe(new IterableSubscription(this.#iterable, subscriber));
+		const subscription = new IterableSubscription(this.#iterable, subscriber);
+		try {
+			subscriber.onSubscribe(subscription);
+		} catch (err) {
+			subscription.cancel();
+			throw err;
+		}
 	}
 }

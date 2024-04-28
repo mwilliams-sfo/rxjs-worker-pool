@@ -47,7 +47,7 @@ class MapWithWorkersSubscription {
 					}
 				},
 				onNext: value => { this.#onNext(value);	},
-				onError: error => { this.#onError(value); },
+				onError: err => { this.#onError(err); },
 				onComplete: () => { this.#onComplete(); }
 			});
 		});
