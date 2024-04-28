@@ -1,19 +1,20 @@
 
-const iterableIterator = iterator =>
-	iterator[Symbol.iterator] ? iterator :
+const iterableAsyncIterator = iterator =>
+	iterator[Symbol.asyncIterator] ? iterator :
 	{
-		[Symbol.iterator]() { return iterator; },
+		[Symbol.asyncIterator]() { return iterator; },
 		next() { return iterator.next(); },
 		return() { return iterator.return(); }
 	};
 
-class IterableSubscription {
+class AsyncIterableSubscription {
 	#iterable;
 	#subscriber;
 
 	#cancelled = false;
 	#demand = 0n;
 	#iterator;
+	#iterating = false;
 
 	constructor(iterable, subscriber) {
 		this.#iterable = iterable;
@@ -36,34 +37,34 @@ class IterableSubscription {
 				n = BigInt(n);
 			}
 			if (n <= 0n) throw new RangeError('Non-positive request is not allowed');
-			const shouldFulfill = this.#demand == 0n;
 			this.#demand += n;
-			if (shouldFulfill) {
-				this.#fulfillDemand();
-			}
+			if (this.#iterating) return;
+			this.#iterate();
 		} catch (err) {
 			this.#signalError(err);
 		}
 	}
 
-	async #fulfillDemand() {
-		try {
-			if (this.#cancelled || this.#demand == 0) return;
-			if (!this.iterator) {
-				this.#iterator = iterableIterator(this.#iterable[Symbol.iterator]());
-			}
-			for (const value of this.#iterator) {
-				try {
-					this.#signalNext(value);
-				} finally {
-					this.demand--;
-				}
+	#iterate() {
+		this.#iterating = true;
+		(async () => {
+			try {
 				if (this.#cancelled || this.#demand == 0) return;
+				if (!this.iterator) {
+					this.#iterator = iterableAsyncIterator(this.#iterable[Symbol.asyncIterator]());
+				}
+				for await (const value of this.#iterator) {
+					this.demand--;
+					this.#signalNext(value);
+					if (this.#cancelled || this.#demand == 0) return;
+				}
+				this.#signalComplete();
+			} catch (err) {
+				this.#signalError(err);
+			} finally {
+				this.#iterating = false;
 			}
-			this.#signalComplete();
-		} catch (err) {
-			this.#signalError(err);
-		}
+		})();
 	}
 
 	#signalNext(value) {
@@ -92,7 +93,7 @@ class IterableSubscription {
 	}
 }
 
-export default class IterablePublisher {
+class AsyncIterablePublisher {
 	#iterable;
 
 	constructor(iterable) {
@@ -100,7 +101,7 @@ export default class IterablePublisher {
 	}
 
 	subscribe(subscriber) {
-		const subscription = new IterableSubscription(this.#iterable, subscriber);
+		const subscription = new AsyncIterableSubscription(this.#iterable, subscriber);
 		try {
 			subscriber.onSubscribe(subscription);
 		} catch (err) {
@@ -109,3 +110,7 @@ export default class IterablePublisher {
 		}
 	}
 }
+
+const fromAsyncIterable = iterable => new AsyncIterablePublisher(iterable);
+
+export default fromAsyncIterable;

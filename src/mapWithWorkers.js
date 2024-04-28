@@ -8,6 +8,7 @@ class MapWithWorkersSubscription {
 	#inputComplete = false;
 	#terminated = false;
 	#inputQueue = [];
+	#processing = false;
 
 	constructor(input, pool, subscriber) {
 		this.#input = input;
@@ -56,7 +57,13 @@ class MapWithWorkersSubscription {
 	#onNext(value) {
 		if (this.#terminated) return;
 		this.#inputQueue.push(value);
-		if (this.#inputQueue.length > 1) return;
+		if (this.#processing) return;
+		this.#processing = true;
+		this.#doProcessing();
+	}
+
+	#doProcessing() {
+		this.#processing = true;
 		(async () => {
 			try {
 				while (this.#inputQueue.length > 0) {
@@ -64,7 +71,7 @@ class MapWithWorkersSubscription {
 					try {
 						const value = this.#inputQueue.shift();
 						const result = await this.#dispatchTo(worker, value);
-						this.#subscriber.onNext?.(value);
+						this.#subscriber.onNext?.(result);
 					} finally {
 						this.#pool.releaseWorker(worker);
 					}
@@ -76,6 +83,8 @@ class MapWithWorkersSubscription {
 			} catch (err) {
 				this.#terminated = true;
 				this.#subscriber.onError?.(err);
+			} finally {
+				this.#processing =  false;
 			}
 		})();
 	}

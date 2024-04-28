@@ -1,8 +1,8 @@
-import IterablePublisher from './flow/IterablePublisher';
+import fromAsyncIterable from './flow/fromAsyncIterable';
 import tap from './flow/tap';
 import WorkerPool from './WorkerPool';
 import mapWithWorkers from './mapWithWorkers';
-
+import SimpleSubscriber from './flow/SimpleSubscriber';
 
 const poolSize = Math.max(1, (navigator.hardwareConcurrency ?? 1) - 1);
 document.querySelector('#poolSize').textContent = poolSize.toString();
@@ -13,14 +13,12 @@ pool.idleCount.subscribe(count => {
 	document.querySelector('#idleCount').textContent = count.toString();
 });
 
-const input = function*() {
+const input = async function*() {
 	for (let n = 0; ; n++) {
-		document.querySelector('#lastInput').textContent = n.toString();
 		yield n;
 		if (n == 100) return;
 	}
 };
-const inputPublisher = new IterablePublisher(input());
 
 const pipe = (input, ...operators) => {
 	let output = input;
@@ -30,21 +28,14 @@ const pipe = (input, ...operators) => {
 	return output;
 };
 
-pipe(inputPublisher,
+pipe(
+	fromAsyncIterable(input()),
 	tap({
 		onNext(value) {
 			document.querySelector('#lastInput').textContent = value.toString();
 		}
 	}),
 	mapWithWorkers(pool, poolSize))
-	.subscribe({
-		_subscription: void 0,
-		onSubscribe(subscription) {
-			this._subscription = subscription;
-			this._subscription.request(1);
-		},
-		onNext(value) {
-			document.querySelector('#lastOutput').textContent = value.toString();
-			this._subscription.request(1);
-		}
-	});		
+	.subscribe(new SimpleSubscriber(value => {
+		document.querySelector('#lastOutput').textContent = value.toString();
+	}));
