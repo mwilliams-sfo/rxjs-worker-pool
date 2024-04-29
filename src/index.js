@@ -35,7 +35,14 @@ pipe(
 			document.querySelector('#lastInput').textContent = value.toString();
 		}
 	}),
-	mapWithWorkers(pool, poolSize))
-	.subscribe(new SimpleSubscriber(value => {
-		document.querySelector('#lastOutput').textContent = value.toString();
+	mapWithWorkers(pool))
+	.subscribe(new SimpleSubscriber({
+		onSubscribe(subscription) {
+			this._subscription = subscription;
+			this._subscription.request(poolSize);
+		},
+		onNext(value) {
+			this._subscription.request(1);
+			document.querySelector('#lastOutput').textContent = value.toString();
+		}
 	}));

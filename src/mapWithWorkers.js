@@ -144,9 +144,7 @@ class MapWithWorkersProcessor {
 	}
 }
 
-const mapWithWorkers = (pool, concurrency) => {
-	concurrency = concurrency ?? 1;
-	if (concurrency <= 0) throw new Error('Concurrency must be at least 1');
+const mapWithWorkers = (pool) => {
 	return input => {
 		const processor = new MapWithWorkersProcessor(input, pool);
 		return {
