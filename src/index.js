@@ -1,5 +1,5 @@
 import fromAsyncIterable from './flow/fromAsyncIterable';
-import tap from './flow/tap';
+import doOnNext from './flow/doOnNext';
 import WorkerPool from './WorkerPool';
 import mapWithWorkers from './mapWithWorkers';
 import SimpleSubscriber from './flow/SimpleSubscriber';
@@ -30,11 +30,7 @@ const pipe = (input, ...operators) => {
 
 pipe(
 	fromAsyncIterable(input()),
-	tap({
-		onNext(value) {
-			document.querySelector('#lastInput').textContent = value.toString();
-		}
-	}),
+	doOnNext(value => { document.querySelector('#lastInput').textContent = value.toString(); }),
 	mapWithWorkers(pool))
 	.subscribe(new SimpleSubscriber({
 		onSubscribe(subscription) {
