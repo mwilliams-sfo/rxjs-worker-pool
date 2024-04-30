@@ -142,7 +142,7 @@ input using the ix library.
 ## Further lessons
 
 - concatMap is appropriate for a strictly sequential process that may consume
-  an indefinite amount of their input.
+  an indefinite amount of the input.
 - If an exact amount of input must be processed, iterables are more suitable.
 - If concurrency is needed, a pipeline of multiple stages is more suitable.
   Compare Hoare's COPY program in CSP.
@@ -153,3 +153,55 @@ only as fast as I can acquire workers for them. Backpressure enables a process
 to manage an internal flow limit that is unknown to the producer and the
 consumer. It informs a producer that while it may *produce*, it should not
 *emit*.
+
+## Reactive streams
+
+Why stop there: knowing that backpressure is the solution, but not doing
+anything about it? ReactiveX recommends RxJava, which supports backpressure
+in its Flowable class, but it does not recommend a similarly capable
+JavaScript library. There is a library called RSocket that allegedly
+supports backpressure, but the extent of its support is poorly documented.
+
+A contract for flows with backpressure is documented in the Reactive Streams
+specification, which is much easier to understand than reverse-engineering
+RxJava or Reactor. Based on this, I decided to implement reactive streams in
+JavaScript for my purposes. It was challenging, but not overwhelming. Among
+the tricks that were used:
+
+- Demand signalling as buffer control: My terminal subscriber initially
+  requests not just one value from the worker pool processor, but as many
+  as the number of workers. This demand propagates upstream so that the input
+  generator generates just that many values into the processor's buffer and
+  stops until more demand arrives. This provides the buffering that has been
+  absent in prior implementations.
+- Fulfillment loops: As soon as a Publisher's demand exceeds zero, it starts
+  a loop (an asynchronous code block) to fulfill the demand. The loop delivers
+  values until the Publisher is cancelled, or the demand is fulfilled, or
+  there is nothing more to deliver. This avoids mutual recursion between
+  request and onNext, as the specification requires. When demand is exhausted,
+  the loop quits.
+- Multi-stage fulfillment through the worker pool: Values provided to the
+  worker pool processor are placed in a queue for a loop that matches them
+  with a worker. They are dispatched to that worker, and the worker and the
+  dispatch are placed in a second queue for another loop. That loop waits for
+  the next result, releases the worker, and emits the result downstream. This
+  allows simultaneous waiting for a worker and for a result, something that
+  has not been present in previous implementations.
+
+Only three publishers were necessary: one to emit values from an async
+generator; another that logs those values as they are emitted; and a third
+to process them through the pool. Arguably, the internal stages of my pool
+processor are really two processors (as in the RxJS implementation), and with
+further effort I might separate them accordingly.
+
+Further directions to go:
+
+- Factor the common behavior of publishers, subscribers and subscriptions for
+  reuse. They have been reimplemented in each class, resulting in much
+  inconsistency and churn.
+- Separate the pool processing stages as mentioned above. The stages will both
+  need a reference to the pool so that one can acquire and the other can
+  release.
+- Eliminate RxJS. I still use for condition signalling to indicate that a
+  worker is available, and this should be easy to replace.
+- Implement stages as processors, not as wrapper-publishers like I have now.
