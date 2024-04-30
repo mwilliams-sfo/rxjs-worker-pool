@@ -1,57 +1,60 @@
 
-import LazySubscription from './LazySubscription';
-
 class TapSubscription {
 	#tapSubscriber;
-	#input;
 	#subscriber;
 	#inputSubscription;
 
+	#cancelled = false;
+
 	constructor(input, tapSubscriber, subscriber) {
 		this.#tapSubscriber = tapSubscriber;
-		this.#input = input;
 		this.#subscriber = subscriber;
-		this.#inputSubscription = new LazySubscription(input, this);
+		input.subscribe({
+			onSubscribe: subscription => { this.#inputSubscription = subscription; },
+			onNext: value => { this.#onNext(value); },
+			onError: err => { this.#onError(err); },
+			onComplete: () => { this.#onComplete(); }
+		});
 	}
 
 	cancel() {
-		this.#inputSubscription?.cancel();
+		if (this.#cancelled) return;
+		this.#cancelled = true;
+		this.#inputSubscription.cancel();
+		this.#tapSubscriber = this.#subscriber = null;
 	}
 
 	request(n) {
+		if (this.#cancelled) return;
 		this.#inputSubscription.request(n);
 	}
 
-	onNext(value) {
-		try {
-			this.#tapSubscriber.onNext?.(value);
-			this.#subscriber.onNext?.(value);
-		} catch (err) {
-			this.#inputSubscription.cancel();
-			this.#subscriber.onError?.(new Error('Tap subscriber error', { cause: err }));
-		}
+	#onNext(value) {
+		this.#signal(it => it.onNext(value), value);
 	}
 
-	onError(err) {
-		try {
-			this.#tapSubscriber.onError?.(err);
-			this.#subscriber.onError?.(err);
-		} catch (err) {
-			this.#subscriber.onError?.(new Error('Tap subscriber error', { cause: err }));
-		}
+	#onError(err) {
+		this.#signal(it => it.onError(err), err);
 	}
 
-	onComplete() {
+	#onComplete() {
+		this.#signal(it => it.onComplete());
+	}
+
+	#signal(event, ...args) {
 		try {
-			this.#tapSubscriber.onComplete?.()
-			this.#subscriber.onComplete?.();
+			event(this.#tapSubscriber, ...args);
 		} catch (err) {
-			this.#subscriber.onError?.(new Error('Tap subscriber error', { cause: err }));
+			const subscriber = this.#subscriber;
+			this.cancel();
+			subscriber.onError(new Error('Tap subscriber error', { cause: err }));
+			return;
 		}
+		event(this.#subscriber, ...args);
 	}
 }
 
-class TapOperator {
+class TapPublisher {
 	#input;
 	#tapSubscriber;
 
@@ -66,13 +69,7 @@ class TapOperator {
 	}
 }
 
-const asPublisher = publisher => ({
-	subscribe(subscriber) {
-		publisher.subscribe(subscriber);
-	}
-});
-
 const tap = tapSubscriber =>
-	input => asPublisher(new TapOperator(input, tapSubscriber));
+	input => new TapPublisher(input, tapSubscriber);
 
 export default tap;

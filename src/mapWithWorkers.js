@@ -1,12 +1,11 @@
 
 class MapWithWorkersSubscription {
-	#input;
 	#pool;
 	#subscriber;
+	#inputSubscription;
 
 	#cancelled = false;
 	#demand = 0n;
-	#inputSubscription;
 	#inputError;
 	#inputComplete = false;
 
@@ -16,9 +15,14 @@ class MapWithWorkersSubscription {
 	#collecting = false;
 
 	constructor(input, pool, subscriber) {
-		this.#input = input;
 		this.#pool = pool;
 		this.#subscriber = subscriber;
+		input.subscribe({
+			onSubscribe: subscription => { this.#inputSubscription = subscription; },
+			onNext: value => { this.#onNext(value); },
+			onError: err => { this.#onError(err); },
+			onComplete: () => { this.#onComplete(); }
+		});
 	}
 
 	cancel() {
@@ -34,31 +38,10 @@ class MapWithWorkersSubscription {
 			if (typeof n == 'number') n = BigInt(n);
 			if (n <= 0) throw new RangeError("Non-positive requests are not allowed.");
 			this.#demand += n;
-			(async () => {
-				try {
-					this.#inputSubscription ??= await this.#subscribeInput();
-					if (this.#cancelled) {
-						this.#inputSubscription.cancel();
-						return;
-					}
-					this.#inputSubscription.request(n);
-				} catch (err) {
-					this.#signalError(err);
-				}
-			})();
+			this.#inputSubscription.request(n);
 		} catch (err) {
 			this.#signalError(err);
 		}
-	}
-
-	async #subscribeInput() {
-		const outer = this;
-		return new Promise(resolve => this.#input.subscribe({
-			onSubscribe(subscription) { resolve(subscription); },
-			onNext(value) { outer.#onNext(value); },
-			onError(err) { outer.#onError(err); },
-			onComplete() { outer.#onComplete(); }
-		}));
 	}
 
 	#onNext(value) {
@@ -161,13 +144,10 @@ class MapWithWorkersSubscription {
 	}
 
 	#signalNext(value) {
-		try {
+		this.#signal(() => {
 			this.#demand--;
 			this.#subscriber?.onNext(value);
-		} catch (err) {
-			this.cancel();
-			throw err;
-		}
+		});
 	}
 
 	#signalError(err) {
@@ -177,9 +157,16 @@ class MapWithWorkersSubscription {
 	}
 
 	#signalComplete() {
-		const subscriber = this.#subscriber;
-		this.cancel();
-		subscriber?.onComplete();
+		this.#signal(() => this.#subscriber.onComplete());
+	}
+
+	#signal(block) {
+		try {
+			block();
+		} catch (err) {
+			this.cancel();
+			throw err;
+		}
 	}
 }
 
