@@ -1,12 +1,4 @@
 
-const iterableAsyncIterator = iterator =>
-	iterator[Symbol.asyncIterator] ? iterator :
-	{
-		[Symbol.asyncIterator]() { return iterator; },
-		next() { return iterator.next(); },
-		return() { return iterator.return(); }
-	};
-
 class AsyncIterableSubscription {
 	#iterable;
 	#subscriber;
@@ -24,21 +16,18 @@ class AsyncIterableSubscription {
 	cancel() {
 		if (this.#cancelled) return;
 		this.#cancelled = true;
-		this.#subscriber = null;
 		try {
 			this.#iterator?.return?.();
 		} catch (err) {}
+		this.#subscriber = null;
 	}
 
 	request(n) {
 		if (this.#cancelled) return;
 		try {
-			if (typeof n == 'number') {
-				n = BigInt(n);
-			}
-			if (n <= 0n) throw new RangeError('Non-positive request is not allowed');
+			if (typeof n == 'number') n = BigInt(n);
+			if (n <= 0) throw new RangeError('Non-positive request is not allowed.');
 			this.#demand += n;
-			if (this.#iterating) return;
 			this.#iterate();
 		} catch (err) {
 			this.#signalError(err);
@@ -46,16 +35,16 @@ class AsyncIterableSubscription {
 	}
 
 	#iterate() {
+		if (this.#iterating) return;
 		this.#iterating = true;
 		(async () => {
 			try {
-				if (this.#cancelled || this.#demand == 0) return;
-				if (!this.iterator) {
-					this.#iterator = iterableAsyncIterator(this.#iterable[Symbol.asyncIterator]());
-				}
-				for await (const value of this.#iterator) {
-					this.demand--;
-					this.#signalNext(value);
+				this.#iterator ??= this.#iterable[Symbol.asyncIterator]();
+				while (true) {
+					const next = await this.#iterator.next();
+					if (next.done) break;
+					this.#demand--;
+					this.#signalNext(next.value);
 					if (this.#cancelled || this.#demand == 0) return;
 				}
 				this.#signalComplete();
@@ -68,28 +57,24 @@ class AsyncIterableSubscription {
 	}
 
 	#signalNext(value) {
-		this.#signal(() => this.#subscriber.onNext(value));
+		try {
+			this.#subscriber?.onNext(value);
+		} catch (err) {
+			this.cancel();
+			throw err;
+		}
 	}
 
 	#signalError(err) {
 		const subscriber = this.#subscriber;
 		this.cancel();
-		this.#signal(() => subscriber.onError(err));
+		subscriber?.onError(err);
 	}
 
 	#signalComplete(err) {
 		const subscriber = this.#subscriber;
 		this.cancel();
-		this.#signal(() => subscriber.onComplete());
-	}
-
-	#signal(block) {
-		try {
-			block();
-		} catch (err) {
-			this.cancel()
-			throw err;
-		}
+		subscriber?.onComplete();
 	}
 }
 
