@@ -1,10 +1,12 @@
 
+import WorkerPool from './WorkerPool';
+import DelegatingSubscriber from './flow/DelegatingSubscriber';
+
 class MapWithWorkersSubscription {
 	#pool;
 	#subscriber;
 	#inputSubscription;
 
-	#cancelled = false;
 	#demand = 0n;
 	#inputError;
 	#inputComplete = false;
@@ -17,28 +19,26 @@ class MapWithWorkersSubscription {
 	constructor(input, pool, subscriber) {
 		this.#pool = pool;
 		this.#subscriber = subscriber;
-		input.subscribe({
+		input.subscribe(new DelegatingSubscriber({
 			onSubscribe: subscription => { this.#inputSubscription = subscription; },
-			onNext: value => { this.#onNext(value); },
-			onError: err => { this.#onError(err); },
-			onComplete: () => { this.#onComplete(); }
-		});
+			onNext: value => this.#onNext(value),
+			onError: err => this.#onError(err),
+			onComplete: () => this.#onComplete()
+		}));
 	}
 
 	cancel() {
-		if (this.#cancelled) return;
-		this.#cancelled = true;
 		this.#inputSubscription?.cancel();
-		this.#subscriber = null;
+		this.#inputSubscription = null;
 	}
 
 	request(n) {
-		if (this.#cancelled) return;
+		if (!this.#inputSubscription) return;
 		try {
 			if (typeof n == 'number') n = BigInt(n);
-			if (n <= 0) throw new RangeError("Non-positive requests are not allowed.");
+			if (n <= 0) throw new RangeError('Non-positive requests are not allowed.');
 			this.#demand += n;
-			this.#inputSubscription.request(n);
+			this.#inputSubscription?.request(n);
 		} catch (err) {
 			this.#signalError(err);
 		}
@@ -50,6 +50,7 @@ class MapWithWorkersSubscription {
 	}
 
 	#onError(err) {
+		this.#inputSubscription = null;
 		if (this.#dispatching || this.#collecting) {
 			this.#inputError = err;
 		} else {
@@ -58,6 +59,7 @@ class MapWithWorkersSubscription {
 	}
 
 	#onComplete() {
+		this.#inputSubscription = null;
 		if (this.#dispatching || this.#collecting) {
 			this.#inputComplete = true;
 		} else {
@@ -70,13 +72,13 @@ class MapWithWorkersSubscription {
 		this.#dispatching = true;
 		(async () => {
 			try {
-				while (!this.#cancelled && this.#inputQueue.length) {
+				while (this.#inputQueue.length) {
 					const worker = await this.#pool.acquireWorker();
 					try {
-						this.#dispatchTo(worker, this.#inputQueue.shift());
+						const value = this.#inputQueue.shift();
+						this.#dispatchTo(worker, value);
 					} catch (err) {
 						this.#pool.releaseWorker(worker);
-						throw err;
 					}
 				}
 			} catch (err) {
@@ -124,8 +126,8 @@ class MapWithWorkersSubscription {
 					const task = this.#taskQueue.shift();
 					try {
 						const result = await task.result;
-						if (this.#cancelled) continue;
-						this.#signalNext(result);
+						this.#demand--;
+						this.#subscriber?.onNext(result);
 					} catch (err) {
 						this.#signalError(err);
 					} finally {
@@ -143,30 +145,16 @@ class MapWithWorkersSubscription {
 		})();
 	}
 
-	#signalNext(value) {
-		this.#signal(() => {
-			this.#demand--;
-			this.#subscriber?.onNext(value);
-		});
-	}
-
 	#signalError(err) {
-		const subscriber = this.#subscriber;
 		this.cancel();
-		subscriber?.onError(err);
+		this.#subscriber?.onError(err);
+		this.subscriber = null;
 	}
 
 	#signalComplete() {
-		this.#signal(() => this.#subscriber.onComplete());
-	}
-
-	#signal(block) {
-		try {
-			block();
-		} catch (err) {
-			this.cancel();
-			throw err;
-		}
+		this.cancel();
+		this.#subscriber?.onComplete();
+		this.subscriber = null;
 	}
 }
 
@@ -175,6 +163,8 @@ class MapWithWorkersProcessor {
 	#pool;
 
 	constructor(input, pool) {
+		if (!(input instanceof Object)) throw new TypeError('input is not an object');
+		if (!(pool instanceof WorkerPool)) throw new TypeError('pool is not a WorkerPool');
 		this.#input = input;
 		this.#pool = pool;
 	}
