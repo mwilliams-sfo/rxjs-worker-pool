@@ -34,26 +34,24 @@ class AsyncIterableSubscription {
 		}
 	}
 
-	#iterate() {
+	async #iterate() {
 		if (this.#iterating) return;
 		this.#iterating = true;
-		(async () => {
-			try {
-				this.#iterator ??= this.#iterable[Symbol.asyncIterator]();
-				while (true) {
-					const next = await this.#iterator.next();
-					if (next.done) break;
-					this.#demand--;
-					this.#signalNext(next.value);
-					if (this.#cancelled || this.#demand == 0) return;
-				}
-				this.#signalComplete();
-			} catch (err) {
-				this.#signalError(err);
-			} finally {
-				this.#iterating = false;
+		try {
+			this.#iterator ??= this.#iterable[Symbol.asyncIterator]();
+			while (true) {
+				const next = await this.#iterator.next();
+				if (next.done) break;
+				this.#demand--;
+				this.#signalNext(next.value);
+				if (this.#cancelled || this.#demand == 0) return;
 			}
-		})();
+			this.#signalComplete();
+		} catch (err) {
+			this.#signalError(err);
+		} finally {
+			this.#iterating = false;
+		}
 	}
 
 	#signalNext(value) {

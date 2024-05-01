@@ -67,32 +67,38 @@ class MapWithWorkersSubscription {
 		}
 	}
 
-	#dispatch() {
+	async #dispatch() {
 		if (this.#dispatching) return;
 		this.#dispatching = true;
-		(async () => {
-			try {
-				while (this.#inputQueue.length) {
-					const worker = await this.#pool.acquireWorker();
-					try {
-						const value = this.#inputQueue.shift();
-						this.#dispatchTo(worker, value);
-					} catch (err) {
-						this.#pool.releaseWorker(worker);
-					}
+		try {
+			while (this.#inputQueue.length) {
+				const worker = await this.#pool.acquireWorker();
+				try {
+					const value = this.#inputQueue.shift();
+					const result = this.#dispatchTo(worker, value);
+					this.#taskQueue.push({worker, result});
+					this.#collect();
+				} catch (err) {
+					this.#pool.releaseWorker(worker);
 				}
-			} catch (err) {
-				this.#signalError(err);
-			} finally {
-				this.#inputQueue.length = 0;
-				this.#dispatching = false;
 			}
-		})();
+		} catch (err) {
+			this.#signalError(err);
+		} finally {
+			this.#inputQueue.length = 0;
+			this.#dispatching = false;
+		}
 	}
 
 	#dispatchTo(worker, value) {
+		const result = this.#workerResult(worker);
+		worker.postMessage(value);
+		return result;
+	}
+
+	async #workerResult(worker) {
 		let messageListener, messageErrorListener, errorListener;
-		const result =
+		return (
 			Promise.race([
 				new Promise(resolve => {
 					worker.addEventListener('message', messageListener = evt => { resolve(evt.data); });
@@ -106,43 +112,38 @@ class MapWithWorkersSubscription {
 					worker.addEventListener('error', errorListener = evt => {
 						reject(new Error('Worker error'));
 					});
-				})
+				})			
 			]).finally(() => {
 				worker.removeEventListener('message', messageListener);
 				worker.removeEventListener('messageerror', messageErrorListener);
 				worker.removeEventListener('error', errorListener);
-			});
-		worker.postMessage(value);
-		this.#taskQueue.push({worker, result});
-		this.#collect();
+			}));
 	}
 
-	#collect() {
+	async #collect() {
 		if (this.#collecting) return;
 		this.#collecting = true;
-		(async () => {
-			try {
-				while (this.#taskQueue.length) {
-					const task = this.#taskQueue.shift();
-					try {
-						const result = await task.result;
-						this.#demand--;
-						this.#subscriber?.onNext(result);
-					} catch (err) {
-						this.#signalError(err);
-					} finally {
-						this.#pool.releaseWorker(task.worker);
-					}
+		try {
+			while (this.#taskQueue.length) {
+				const task = this.#taskQueue.shift();
+				try {
+					const result = await task.result;
+					this.#demand--;
+					this.#subscriber?.onNext(result);
+				} catch (err) {
+					this.#signalError(err);
+				} finally {
+					this.#pool.releaseWorker(task.worker);
 				}
-				if (this.#inputError) {
-					this.#signalError(this.#inputError);
-				} else if (this.#inputComplete) {
-					this.#signalComplete();
-				}
-			} finally {
-				this.#collecting = false;
 			}
-		})();
+			if (this.#inputError) {
+				this.#signalError(this.#inputError);
+			} else if (this.#inputComplete) {
+				this.#signalComplete();
+			}
+		} finally {
+			this.#collecting = false;
+		}
 	}
 
 	#signalError(err) {
