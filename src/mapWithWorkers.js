@@ -29,7 +29,8 @@ class MapWithWorkersSubscription {
 
 	cancel() {
 		this.#inputSubscription?.cancel();
-		this.#inputSubscription = null;
+		this.#inputSubscription = this.#subscriber = null;
+		this.#inputQueue.length = this.#taskQueue.length = 0;
 	}
 
 	request(n) {
@@ -72,22 +73,22 @@ class MapWithWorkersSubscription {
 		this.#dispatching = true;
 		try {
 			while (this.#inputQueue.length) {
-				const worker = await this.#pool.acquireWorker();
-				try {
-					const value = this.#inputQueue.shift();
-					const result = this.#dispatchTo(worker, value);
-					this.#taskQueue.push({worker, result});
-					this.#collect();
-				} catch (err) {
-					this.#pool.releaseWorker(worker);
-				}
+				const value = this.#inputQueue.shift();
+				const result = this.#dispatchValue(value);
+				this.#taskQueue.push(result);
+				this.#collect();
 			}
 		} catch (err) {
 			this.#signalError(err);
 		} finally {
-			this.#inputQueue.length = 0;
 			this.#dispatching = false;
 		}
+	}
+
+	async #dispatchValue(value) {
+		const worker = await this.#pool.acquireWorker();
+		return this.#dispatchTo(worker, value)
+			.finally(() => this.#pool.releaseWorker(worker));
 	}
 
 	#dispatchTo(worker, value) {
@@ -96,7 +97,7 @@ class MapWithWorkersSubscription {
 		return result;
 	}
 
-	async #workerResult(worker) {
+	#workerResult(worker) {
 		let messageListener, messageErrorListener, errorListener;
 		return (
 			Promise.race([
@@ -125,22 +126,17 @@ class MapWithWorkersSubscription {
 		this.#collecting = true;
 		try {
 			while (this.#taskQueue.length) {
-				const task = this.#taskQueue.shift();
-				try {
-					const result = await task.result;
-					this.#demand--;
-					this.#subscriber?.onNext(result);
-				} catch (err) {
-					this.#signalError(err);
-				} finally {
-					this.#pool.releaseWorker(task.worker);
-				}
+				const result = await this.#taskQueue.shift();
+				this.#demand--;
+				this.#subscriber?.onNext(result);
 			}
 			if (this.#inputError) {
 				this.#signalError(this.#inputError);
 			} else if (this.#inputComplete) {
 				this.#signalComplete();
 			}
+		} catch (err) {
+			this.#signalError(err);
 		} finally {
 			this.#collecting = false;
 		}

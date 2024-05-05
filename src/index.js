@@ -35,7 +35,7 @@ pipe(
 	.subscribe(new SimpleSubscriber({
 		onSubscribe(subscription) {
 			this._subscription = subscription;
-			this._subscription.request(poolSize);
+			this._subscription.request(2 * poolSize);
 		},
 		onNext(value) {
 			this._subscription.request(1);

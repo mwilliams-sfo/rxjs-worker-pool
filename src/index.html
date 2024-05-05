@@ -8,7 +8,7 @@
 		A demo and stress test of the worker pool:
 		<ul>
 			<li>The output should count monotonically from 0 to 100.</li>
-			<li>The difference between the last input and last output should never significantly exceed the pool size.</li>
+			<li>The difference between the last input and last output should reach an upper bound smaller than 100.</li>
 			<li>The number of idle workers should remain at or near 0 until the end.</li>
 			<li>At the end, the number of idle workers should increase to the pool size.</li>
 		</ul>

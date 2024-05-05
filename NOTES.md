@@ -205,3 +205,30 @@ Further directions to go:
 - Eliminate RxJS. I still use for condition signalling to indicate that a
   worker is available, and this should be easy to replace.
 - Implement stages as processors, not as wrapper-publishers like I have now.
+
+## Associating worker release with worker acquisition
+
+In all prior implementations, I have had the code for worker acquisition in
+one stage of processing and the code to release the worker in another. As
+discussed above, what I really wanted was a single function that could
+acquire a worker *and* schedule its release when the worker signalled a
+result, so that the downstream stage could deal only with results. There were
+two difficulties making this work, even in the Reactive Streams implementation.
+
+1. I have not correctly understood the capabilities of the Promise.finally
+   method. It can express semantics that an async try-finally statement
+   cannot: scheduling cleanup actions to run *when* a Promise resolves
+   without *waiting* for it to resolve. That is what I need both for
+   worker release and event listener removal. The limitation exists in JS
+   because try-finally statements are statements, not expressions, and cannot
+   be directly awaited as they can in Kotlin.
+2. By maintaining the demand at exactly the pool size, I create the
+   possibility that the pool will be underused when the downstream process
+   is waiting for the next result even though later results are already
+   available. This can appear in the demo as a temporary increase in the
+   number of idle workers.
+
+The solutions are simple: Use Promise.finally to schedule worker release as
+soon as the worker has completed a task, and maintain the demand at twice the
+pool size. This provides sufficient slack to keep the pool utilized while
+waiting for slow calculations.
