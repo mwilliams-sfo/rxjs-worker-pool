@@ -3,7 +3,6 @@
 
 export default class DelegatingSubscriber {
 	#delegate;
-	#subscription;
 
 	constructor(delegate) {
 		this.#delegate = delegate;
@@ -14,45 +13,36 @@ export default class DelegatingSubscriber {
 			throw new TypeError('subscription is not an object.');
 		}
 		try {
-			this.#delegate?.onSubscribe(this.#subscription = subscription);
+			this.#delegate.onSubscribe(subscription);
 		} catch (err) {
-			this.#subscription?.cancel();
-			this.onError(err);
+			subscription?.cancel();
+			throw err
 		}
 	}
 
 	onNext(value) {
 		try {
-			value ?? (() => { throw new TypeError('Required argument is nullish.'); })();
-			this.#delegate?.onNext(value);
+			value ?? (() => { throw new TypeError('Provided argument is nullish.'); })();
+			this.#delegate?.onNext?.(value);
 		} catch (err) {
-			const delegate = this.#delegate;
-			this.#subscription?.cancel();
-			delegate?.onError(err);
-			
+			this.onError(err);
 		}		
 	}
 
 	onError(err) {
 		try {
-			err ?? (() => { throw new TypeError('Required argument is nullish.'); })();
-			this.#delegate?.onError(err);
+			err ?? (() => { throw new TypeError('Provided argument is nullish.'); })();
+			this.#delegate?.onError?.(err);
 		} finally {
-			this.#delegate = this.#subscription = null;
+			this.#delegate = null;
 		}
 	}
 
 	onComplete() {
 		try {
-			this.#delegate?.onComplete();
+			this.#delegate?.onComplete?.();
 		} finally {
-			this.#delegate = this.#subscription = null;
+			this.#delegate = null;
 		}
-	}
-
-	#cancel() {
-		this.#subscription?.cancel();
-		this.#subscription.cancel();
-		this.#subscription = null;
 	}
 }

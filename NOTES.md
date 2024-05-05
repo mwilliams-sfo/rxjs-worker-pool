@@ -232,3 +232,7 @@ The solutions are simple: Use Promise.finally to schedule worker release as
 soon as the worker has completed a task, and maintain the demand at twice the
 pool size. This provides sufficient slack to keep the pool utilized while
 waiting for slow calculations.
+
+To factor common subscriber requirements I created a DelegatingSubscriber class
+that captures the common behavior required of onNext/onError/onComplete and calls
+a delegate for custom code.
