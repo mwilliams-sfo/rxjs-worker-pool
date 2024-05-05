@@ -3,7 +3,6 @@ class AsyncIterableSubscription {
 	#iterable;
 	#subscriber;
 
-	#cancelled = false;
 	#demand = 0n;
 	#iterator;
 	#iterating = false;
@@ -14,16 +13,12 @@ class AsyncIterableSubscription {
 	}
 
 	cancel() {
-		if (this.#cancelled) return;
-		this.#cancelled = true;
-		try {
-			this.#iterator?.return?.();
-		} catch (err) {}
-		this.#subscriber = null;
+		this.#iterator?.return?.();
+		this.#iterable = this.#iterator = this.#subscriber = null;
 	}
 
 	request(n) {
-		if (this.#cancelled) return;
+		if (!this.#iterable) return;
 		try {
 			if (typeof n == 'number') n = BigInt(n);
 			if (n <= 0) throw new RangeError('Non-positive request is not allowed.');
@@ -35,7 +30,7 @@ class AsyncIterableSubscription {
 	}
 
 	async #iterate() {
-		if (this.#iterating) return;
+		if (!this.#iterable || this.#iterating) return;
 		this.#iterating = true;
 		try {
 			this.#iterator ??= this.#iterable[Symbol.asyncIterator]();
@@ -44,7 +39,7 @@ class AsyncIterableSubscription {
 				if (next.done) break;
 				this.#demand--;
 				this.#signalNext(next.value);
-				if (this.#cancelled || this.#demand == 0) return;
+				if (!this.#iterable || this.#demand == 0) return;
 			}
 			this.#signalComplete();
 		} catch (err) {
@@ -55,12 +50,7 @@ class AsyncIterableSubscription {
 	}
 
 	#signalNext(value) {
-		try {
-			this.#subscriber?.onNext(value);
-		} catch (err) {
-			this.cancel();
-			throw err;
-		}
+		this.#subscriber?.onNext(value);
 	}
 
 	#signalError(err) {
