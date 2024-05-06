@@ -2,9 +2,9 @@
 export default class WorkerPool {
 	#workers;
 	#idleWorkers;
-	#acquireQueue = [];
 
-	#eventTarget;
+	#acquireQueue = [];
+	#idleCountCallbacks = [];
 	#shutdownCallback;
 
 	constructor(count, workerFactory) {
@@ -15,7 +15,6 @@ export default class WorkerPool {
 			this.#workers[i] = workerFactory(i);
 		}
 		this.#idleWorkers = [...this.#workers];
-		this.#eventTarget = document.createDocumentFragment();
 	}
 
 	async acquireWorker() {
@@ -24,7 +23,7 @@ export default class WorkerPool {
 			try {
 				return this.#idleWorkers.shift();
 			} finally {
-				this.#notifyEvent('idlecountchange');
+				this.#notifyIdleCount();
 			}
 		} else {
 			return new Promise((resolve, reject) => this.#acquireQueue.push({resolve, reject}));
@@ -37,7 +36,7 @@ export default class WorkerPool {
 		if (this.#shutdownCallback) {
 			worker.terminate();
 			this.#idleWorkers.push(worker);
-			this.#notifyEvent('idlecountchange');
+			this.#notifyIdleCount();
 			if (this.#idleWorkers.length == this.#workers.length) {
 				this.#shutdownCallback();
 			}
@@ -69,7 +68,7 @@ export default class WorkerPool {
 
 	async *idleCount() {
 		let yielded = false, resolveNext;
-		const listener = () => {
+		const callback = () => {
 			yielded = false;
 			if (resolveNext) {
 				resolveNext(this.#idleWorkers.length);
@@ -78,7 +77,7 @@ export default class WorkerPool {
 			}
 		};
 		try {
-			this.#eventTarget.addEventListener('idlecountchange', listener);
+			this.#idleCountCallbacks.push(callback);
 			while (true) {
 				if (!yielded) {
 					yield this.#idleWorkers.length;
@@ -88,11 +87,14 @@ export default class WorkerPool {
 				}
 			}
 		} finally {
-			this.#eventTarget.removeEventListener('idlecountchange', listener);
+			const index = this.#idleCountCallbacks.indexOf(callback);
+			this.#idleCountCallbacks.splice(index, 1);
 		}
 	}
 
-	#notifyEvent(type) {
-		setTimeout(() => this.#eventTarget.dispatchEvent(new CustomEvent(type)), 0);
+	#notifyIdleCount() {
+		for (const callback of this.#idleCountCallbacks) {
+			queueMicrotask(callback);
+		}
 	}
 }
