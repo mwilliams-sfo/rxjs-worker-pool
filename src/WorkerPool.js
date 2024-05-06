@@ -1,13 +1,10 @@
 
-import * as rx from 'rxjs';
-
 export default class WorkerPool {
 	#workers;
 	#idleWorkers;
+	#acquireQueue = [];
 
-	get idleCount() {
-		return this.#idleWorkers.pipe(rx.map(it => it.length));
-	}
+	#eventTarget;
 
 	constructor(count, workerFactory) {
 		if (count <= 0) throw new RangeError('WorkerPool size must be positive');
@@ -16,27 +13,60 @@ export default class WorkerPool {
 		for (let i = 0; i < count; i++) {
 			this.#workers[i] = workerFactory(i);
 		}
-		this.#idleWorkers = new rx.BehaviorSubject(this.#workers);
+		this.#idleWorkers = [...this.#workers];
+		this.#eventTarget = document.createDocumentFragment();
 	}
 
-	acquireWorker() {
-		return (async () => {
-			let idleWorkers;
-			while (true) {
-				idleWorkers = this.#idleWorkers.value;
-				if (idleWorkers.length) break;
-				await rx.firstValueFrom(
-					this.#idleWorkers.pipe(rx.first(it => it.length > 0)));
+	async acquireWorker() {
+		if (this.#idleWorkers.length) {
+			try {
+				return this.#idleWorkers.shift();
+			} finally {
+				this.#notifyEvent('idlecountchange');
 			}
-			this.#idleWorkers.next(idleWorkers.slice(1));
-			return idleWorkers[0];
-		})();
+		} else {
+			return new Promise(resolve => this.#acquireQueue.push(resolve));
+		}
 	}
 
 	releaseWorker(worker) {
 		if (this.#workers.indexOf(worker) < 0) throw new Error('Worker is not from this pool');
-		if (this.#idleWorkers.value.indexOf(worker) >= 0) throw new Error('Worker is already idle');
+		if (this.#idleWorkers.indexOf(worker) >= 0) throw new Error('Worker is already idle');
 
-		this.#idleWorkers.next([...this.#idleWorkers.value, worker]);
+		if (this.#idleWorkers == 0 && this.#acquireQueue.length) {
+			this.#acquireQueue.shift()(worker);
+		} else {
+			this.#idleWorkers.push(worker);
+			this.#notifyEvent('idlecountchange');
+		}
+	}
+
+	async *idleCount() {
+		let yielded = false, resolveNext;
+		const listener = () => {
+			yielded = false;
+			if (resolveNext) {
+				resolveNext(this.#idleWorkers.length);
+				yielded = true;
+				resolveNext = null;
+			}
+		};
+		try {
+			this.#eventTarget.addEventListener('idlecountchange', listener);
+			while (true) {
+				if (!yielded) {
+					yield this.#idleWorkers.length;
+					yielded = true;
+				} else {
+					yield new Promise(resolve => { resolveNext = resolve; });
+				}
+			}
+		} finally {
+			this.#eventTarget.removeEventListener('idlecountchange', listener);
+		}
+	}
+
+	#notifyEvent(type) {
+		setTimeout(() => this.#eventTarget.dispatchEvent(new CustomEvent(type)), 0);
 	}
 }
