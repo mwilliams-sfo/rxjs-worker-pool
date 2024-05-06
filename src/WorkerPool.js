@@ -5,7 +5,7 @@ export default class WorkerPool {
 
 	#acquireQueue = [];
 	#idleCountCallbacks = [];
-	#shutdownCallback;
+	#resolveShutdown;
 
 	constructor(count, workerFactory) {
 		if (count <= 0) throw new RangeError('WorkerPool size must be positive');
@@ -18,7 +18,7 @@ export default class WorkerPool {
 	}
 
 	async acquireWorker() {
-		if (this.#shutdownCallback) throw new Error('WorkerPool is shutting down');
+		if (this.#resolveShutdown) throw new Error('WorkerPool is shutting down');
 		if (this.#idleWorkers.length) {
 			try {
 				return this.#idleWorkers.shift();
@@ -33,26 +33,26 @@ export default class WorkerPool {
 	releaseWorker(worker) {
 		if (this.#workers.indexOf(worker) < 0) throw new Error('Worker is not from this pool');
 		if (this.#idleWorkers.indexOf(worker) >= 0) throw new Error('Worker is already idle');
-		if (this.#shutdownCallback) {
+		if (this.#resolveShutdown) {
 			worker.terminate();
-			this.#idleWorkers.push(worker);
-			this.#notifyIdleCount();
-			if (this.#idleWorkers.length == this.#workers.length) {
-				this.#shutdownCallback();
+		}
+		this.#idleWorkers.push(worker);
+		this.#notifyIdleCount();
+		if (!this.#resolveShutdown) {
+			while (this.#idleWorkers.length && this.#acquireQueue.length) {
+				const resolvers = this.#acquireQueue.shift();
+				resolvers.resolve(this.#idleWorkers.shift());
+				this.#notifyIdleCount();
 			}
-		} else if (this.#idleWorkers == 0 && this.#acquireQueue.length) {
-			const resolvers = this.#acquireQueue.shift();
-			resolvers.resolve(worker);
-		} else {
-			this.#idleWorkers.push(worker);
-			this.#notifyIdleCount();
+		} else if (this.#idleWorkers.length == this.#workers.length) {
+			this.#resolveShutdown();
 		}
 	}
 
 	shutdown() {
-		if (this.#shutdownCallback) throw new Error('shutdown method has already been called.');
+		if (this.#resolveShutdown) throw new Error('Already shutting down.');
 		return new Promise(resolve => {
-			this.#shutdownCallback = resolve;
+			this.#resolveShutdown = resolve;
 			while (this.#acquireQueue.length) {
 				const resolvers = this.#acquireQueue.shift();
 				resolvers.reject(new Error('WorkerPool is shutting down'));
@@ -61,27 +61,27 @@ export default class WorkerPool {
 				worker.terminate();
 			}
 			if (this.#idleWorkers.length == this.#workers.length) {
-				this.#shutdownCallback();
+				this.#resolveShutdown();
 			}
 		});
 	}
 
 	async *idleCount() {
-		let yielded = false, resolveNext;
+		let newValue = true, resolveNext;
 		const callback = () => {
-			yielded = false;
+			newValue = true;
 			if (resolveNext) {
 				resolveNext(this.#idleWorkers.length);
-				yielded = true;
+				newValue = false;
 				resolveNext = null;
 			}
 		};
 		try {
 			this.#idleCountCallbacks.push(callback);
 			while (true) {
-				if (!yielded) {
+				if (newValue) {
 					yield this.#idleWorkers.length;
-					yielded = true;
+					newValue = false;
 				} else {
 					yield new Promise(resolve => { resolveNext = resolve; });
 				}
@@ -93,8 +93,6 @@ export default class WorkerPool {
 	}
 
 	#notifyIdleCount() {
-		for (const callback of this.#idleCountCallbacks) {
-			queueMicrotask(callback);
-		}
+		this.#idleCountCallbacks.forEach(queueMicrotask);
 	}
 }
