@@ -61,7 +61,7 @@ class DoOnNextPublisher {
 	#onNext;
 
 	constructor(input, onNext) {
-		if (input == null || typeof input != 'object') throw new TypeError('input is not an object');
+		if (input === null || typeof input != 'object') throw new TypeError('input is not an object');
 		if (typeof onNext != 'function') throw new TypeError('onNext is not a function.');
 		this.#input = input;
 		this.#onNext = onNext;
