@@ -1,1 +1,1 @@
-An investigation of Web Worker pools with RxJS
+An investigation of Web Worker pools with ~~RxJS~~ bespoke Reactive Streams.
