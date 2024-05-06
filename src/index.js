@@ -45,5 +45,11 @@ pipe(
 		},
 		onNext(value) {
 			this._subscription.request(1);
+		},
+		onError(err) {
+			pool.shutdown();
+		},
+		onComplete() {
+			pool.shutdown();
 		}
 	}));

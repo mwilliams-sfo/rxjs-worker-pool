@@ -143,15 +143,15 @@ class MapWithWorkersSubscription {
 	}
 
 	#signalError(err) {
+		const subscriber = this.#subscriber;
 		this.cancel();
-		this.#subscriber?.onError(err);
-		this.subscriber = null;
+		subscriber?.onError(err);
 	}
 
 	#signalComplete() {
+		const subscriber = this.#subscriber;
 		this.cancel();
-		this.#subscriber?.onComplete();
-		this.subscriber = null;
+		subscriber?.onComplete();
 	}
 }
 
