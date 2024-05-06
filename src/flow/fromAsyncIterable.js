@@ -30,9 +30,10 @@ class AsyncIterableSubscription {
 	}
 
 	async #iterate() {
-		if (!this.#iterable || this.#iterating) return;
-		this.#iterating = true;
+		if (this.#iterating) return;
 		try {
+			this.#iterating = true;
+			if (!this.#iterable) return;
 			this.#iterator ??= this.#iterable[Symbol.asyncIterator]();
 			while (true) {
 				const next = await this.#iterator.next();

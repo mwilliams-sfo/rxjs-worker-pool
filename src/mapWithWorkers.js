@@ -70,8 +70,8 @@ class MapWithWorkersSubscription {
 
 	async #dispatch() {
 		if (this.#dispatching) return;
-		this.#dispatching = true;
 		try {
+			this.#dispatching = true;
 			while (this.#inputQueue.length) {
 				const value = this.#inputQueue.shift();
 				const result = this.#dispatchValue(value);
@@ -123,8 +123,8 @@ class MapWithWorkersSubscription {
 
 	async #collect() {
 		if (this.#collecting) return;
-		this.#collecting = true;
 		try {
+			this.#collecting = true;
 			while (this.#taskQueue.length) {
 				const result = await this.#taskQueue.shift();
 				this.#demand--;
