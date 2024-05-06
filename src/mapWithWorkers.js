@@ -155,32 +155,25 @@ class MapWithWorkersSubscription {
 	}
 }
 
-class MapWithWorkersProcessor {
+class MapWithWorkersPublisher {
 	#input;
 	#pool;
 
 	constructor(input, pool) {
-		if (!(input instanceof Object)) throw new TypeError('input is not an object');
+		if (input === null || !(typeof input == 'object')) throw new TypeError('input is not an object');
 		if (!(pool instanceof WorkerPool)) throw new TypeError('pool is not a WorkerPool');
 		this.#input = input;
 		this.#pool = pool;
 	}
 
 	subscribe(subscriber) {
-		const subscription = new MapWithWorkersSubscription(this.#input, this.#pool, subscriber);
-		subscriber.onSubscribe(subscription);
+		subscriber ?? (() => { throw new TypeError('subscriber is null.'); })();
+		subscriber.onSubscribe(
+			new MapWithWorkersSubscription(this.#input, this.#pool, subscriber));
 	}
 }
 
-const mapWithWorkers = (pool) => {
-	return input => {
-		const processor = new MapWithWorkersProcessor(input, pool);
-		return {
-			subscribe(subscriber) {
-				processor.subscribe(subscriber);
-			}
-		};
-	};
-}
+const mapWithWorkers = pool =>
+	input => new MapWithWorkersPublisher(input, pool);
 
 export default mapWithWorkers;
