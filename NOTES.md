@@ -236,3 +236,43 @@ waiting for slow calculations.
 To factor common subscriber requirements I created a DelegatingSubscriber class
 that captures the common behavior required of onNext/onError/onComplete and calls
 a delegate for custom code.
+
+## Goodbye, RxJS
+
+The WorkerPool used RxJS as a condition variable substitute to wait for a
+worker when none is available, and to monitor the idle worker count. It
+remains to implement both of these directly. The idle count is appropriate for
+implementation as an async generator. Worker acquisition is already exposed
+externally as a Promise. That promise only needs to be implemented without
+RxJS.
+
+Something that I spent time on was how to receive notifications when the idle
+count changes. My first instinct was to use event listeners, as I did to
+receive notifications when workers complete. The problem with this is that
+event listeners are an HTML feature, not part of the JavaScript language, and
+it is not possible to implement custom EventTargets that work according to
+spec. The specification states that dispatchEvent must set the event's target,
+and a custom implementation cannot do that because the target property is
+read-only. As a stopgap, I found a suggestion to use an empty document
+fragment as an event proxy.
+
+The approach then is that the idle count generator registers a listener for
+idle count changes. Each time a value is requested from the generator, it
+checks whether the event listener has run since the last request. If so, the
+current idle count is returned. If not, a Promise is created and the Promise's
+resolver is registered to run the next time an event arrives. This produces
+timely updates without unnecessary repetition, looping, or queueing of values.
+
+As for worker acquisition, I implemented a conventional semaphore. If no
+workers are available, a Promise is created and its resolvers are added to a
+queue. If the queue is not empty when a worker is released, that worker is
+passed to the resolver at the front of the queue.
+
+The event listener approach with a document fragment worked, but I did not
+like the hack. If not event listeners, then what? The basic JavaScript
+notification primitive is a callback. Accordingly, I replaced the EventTarget
+with an array of callbacks that are posted to the microtask queue whenever
+the idle count changes.
+
+Following these changes, I removed the RxJS dependency. RxJS is a decent
+solution for a problem other than the one I set out to solve.
